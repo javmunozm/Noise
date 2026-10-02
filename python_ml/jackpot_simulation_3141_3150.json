@@ -1,0 +1,115 @@
+{
+  "test_date": "2025-11-19 01:19:48",
+  "series_range": [
+    3141,
+    3150
+  ],
+  "total_combinations_possible": 4457400,
+  "expected_tries_per_event": 636771,
+  "ga_combination": [
+    1,
+    2,
+    4,
+    5,
+    6,
+    8,
+    9,
+    10,
+    12,
+    14,
+    16,
+    20,
+    21,
+    22
+  ],
+  "results": [
+    {
+      "series_id": 3141,
+      "random_tries": 1000000,
+      "random_found": false,
+      "random_best_match": 92.85714285714286,
+      "ga_match": 92.85714285714286,
+      "ga_jackpot": false
+    },
+    {
+      "series_id": 3142,
+      "random_tries": 83462,
+      "random_found": true,
+      "random_best_match": 100.0,
+      "ga_match": 78.57142857142857,
+      "ga_jackpot": false
+    },
+    {
+      "series_id": 3143,
+      "random_tries": 1000000,
+      "random_found": false,
+      "random_best_match": 92.85714285714286,
+      "ga_match": 71.42857142857143,
+      "ga_jackpot": false
+    },
+    {
+      "series_id": 3144,
+      "random_tries": 316235,
+      "random_found": true,
+      "random_best_match": 100.0,
+      "ga_match": 78.57142857142857,
+      "ga_jackpot": false
+    },
+    {
+      "series_id": 3145,
+      "random_tries": 172622,
+      "random_found": true,
+      "random_best_match": 100.0,
+      "ga_match": 71.42857142857143,
+      "ga_jackpot": false
+    },
+    {
+      "series_id": 3146,
+      "random_tries": 174703,
+      "random_found": true,
+      "random_best_match": 100.0,
+      "ga_match": 64.28571428571429,
+      "ga_jackpot": false
+    },
+    {
+      "series_id": 3147,
+      "random_tries": 132201,
+      "random_found": true,
+      "random_best_match": 100.0,
+      "ga_match": 64.28571428571429,
+      "ga_jackpot": false
+    },
+    {
+      "series_id": 3148,
+      "random_tries": 608384,
+      "random_found": true,
+      "random_best_match": 100.0,
+      "ga_match": 78.57142857142857,
+      "ga_jackpot": false
+    },
+    {
+      "series_id": 3149,
+      "random_tries": 555487,
+      "random_found": true,
+      "random_best_match": 100.0,
+      "ga_match": 78.57142857142857,
+      "ga_jackpot": false
+    },
+    {
+      "series_id": 3150,
+      "random_tries": 606754,
+      "random_found": true,
+      "random_best_match": 100.0,
+      "ga_match": 78.57142857142857,
+      "ga_jackpot": false
+    }
+  ],
+  "summary": {
+    "total_series": 10,
+    "random_jackpots": 8,
+    "ga_jackpots": 0,
+    "avg_random_tries": 464984.8,
+    "avg_random_best_match": 98.57142857142858,
+    "avg_ga_match": 75.71428571428571
+  }
+}

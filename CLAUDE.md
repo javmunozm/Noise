@@ -1,0 +1,29 @@
+# Lottery Prediction Research
+
+> **DOCUMENTATION REFACTORED TO SAVE TOKENS**
+> The full project documentation has been split into independent files.
+> Start your context search by reading `docs/index.md`.
+
+## THE GOAL
+**Generate a prediction that hits 14/14.** That is the ONLY reason this system exists.
+
+## CLAUDE DIRECTIVES
+
+1. **On session start: ALWAYS run `python ml_models/pm_agent.py report` first.**
+2. **Validation Rules**:
+   - **OOS testing is MANDATORY**: Any new system must be tested on post-3192 series (true out-of-sample).
+   - **Walk-forward backtests are SUSPECT**: Architecture selection on the backtest window = meta-overfitting. Only trust OOS.
+   - **Bonferroni correction required** when testing multiple strategies.
+3. **Activity Logging Mandatory**: Whenever you add new data or run a prediction, log it in `docs/activity_log.md`. Summarize pivotal conversation prompts into `docs/conversation_log.md`.
+4. **Check recent-segment performance proactively**: If a method works on backtest but degrades on the last 20-50 series, it's stale. Flag immediately.
+5. **Adding a new draw**: When the user reports a new series, **ALWAYS ask for the draw date (`YYYY-MM-DD`)** if not provided, then run `python ml_models/add_series.py <draw_id> <date> "<event1>" "<event2>" ...`. That single command syncs `data/full_series_data.json`, `data/all_draws.json`, and `data/filter_pool.json`. Never hand-edit those files. After adding: (a) rebuild LuckyDb cache: `python ml_models/db_init.py --drop`; (b) update BsaDb: `python ml_models/bsadb_update.py <draw_id>`. Full workflow: `docs/data_ingestion.md`.
+6. **Data reads MUST use the DB helper, not raw JSON**: Never `Read` files under `data/*.json` — they are ~300k+ tokens. Use `python ml_models/db_query.py <cmd>` against `dbo.Draws` in `LuckyDb`. Command reference: `docs/database.md`. Common: `stats`, `latest N`, `get <id>`, `score-family <id>`, `novelty "n1,...,n14"`.
+7. **Three active prediction systems** — run ALL for each new series. **The single-ticket engines (B/B2/C) are statistically indistinguishable from each other and from IID — do NOT call any one of them "primary" or recommend it over the others.** On the recent window the rankings churn. **As of 3285 (n=93)**: recurrence full OOS avg=8.000 (z-proxy=+1.14), force full OOS avg=8.065 (z-proxy=+1.61). Both flat this cycle (recurrence scored 8/14, force 8/14 on 3285) — continuing the decaying-to-baseline pattern from the 2026-07-20 diagnosis, not a new problem. No window on either engine clears |z|=2 pre-Bonferroni. Root cause of the earlier decay (traced 2026-07-20): half-life weighting locked onto number 6, which ran hot at 80.6% in the early OOS window then cooled to 65.6% (lifetime rate 56.49%, at theoretical — no structural bias); weighting is too slow to unwind a broken streak. An adaptive regime-detection fix was tried (`ml_models/regime_gate_experiment.py`) and returned a **null result** (OOS avg identical to plain engine to 4dp) — do not re-attempt this class of fix without new evidence of non-IID structure. All OOS edges still fail significance pre-Bonferroni (recurrence z=+1.14, force z=+1.61 at n=93, down from a peak ≈3.2σ at n=46 — and that peak was measured on the contaminated force path). Report all three with their scores; let the user choose. Designed family (A) is the only system with a provable floor.
+   - `python ml_models/designed_family_predictor.py <sid>` — 8-set v2 family (coverage/floor guarantees)
+   - `python ml_models/recurrence_predictor.py <sid>` — single-ticket E1, recurrence-ranking (OOS avg=8.000, +0.160 vs IID at n=93, z=+1.14; was 8.326 at n=46, 8.192 at n=52, 8.024 at n=82 — monotone decay toward baseline). 11-stage validated pipeline: recency-weighted (half-life=26) k=1..7 combination rankings, cross-level influence, two disjoint best-7 groups, unique validator (DB combos) + no-repeat ledger. All stages PASS/FAIL gated. **What it CANNOT do:** P(≥12 hits) identical for every ticket. Do NOT reintroduce EWMA/momentum/hot-hand/bias, and do NOT reintroduce adaptive/regime-aware reweighting (tested, null). Ledger: `ml_models/recurrence_ledger.json`.
+   - `python ml_models/force_evaluator.py <sid> [--hl 20] [--bw 100] [--mode hybrid]` — beam-search cascade (OOS avg=**8.065**, +0.225 vs IID at n=93, z=+1.61; was 8.084 at n=83). Registry: `ml_models/force_evaluator_registry.json`. Sweep script: `ml_models/sweep_force_evaluator.py`.
+     **Registry-leak bugfix 2026-08-25**: `generate()` used to read the anti-repetition registry even when `update_registry=False`, so backtests saw tickets appended by later LIVE runs (future state leaking backwards). Fixed to `_load_registry(...) if update_registry else []`. **Consequence: every force OOS number logged before 2026-08-25 (n=46/52/75/76/77) came from the contaminated path and is suspect**, as does the 72-config sweep that selected hl=20/bw=100/hybrid (it also passed `update_registry=False`). Re-sweep before trusting those params. `recurrence_predictor.py` never had this bug — it already gated its ledger on `update_ledger`.
+   - `python ml_models/bsadb_update.py <prev_sid>` then query BsaDb `bsa.swapper_pred WHERE SeriesId=<prev_sid>` — delta-EWMA top-14 ticket stored in BsaDb (E1-only; same signal as signal_predictor.py but independently tracked; OOS started 3228). CondScore base retired 2026-05-23: OOS avg 7.947 vs ewma 8.211. 3285 base CondScore scored 9/14 vs E1, swapper (sid 3284 pred) scored 8/14 vs E1, still tracked separately from full OOS avg.
+8. **After each draw result**: run `--oos --from 3193` to verify signal health. Do NOT refit bias — bias stage is removed; refitting it is overfitting.
+
+*Refer to `docs/index.md` for system architecture and historical findings.*

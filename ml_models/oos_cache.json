@@ -1,0 +1,27 @@
+{
+  "force_evaluator": {
+    "oos_lo": 3193,
+    "n": 93,
+    "avg": 8.065,
+    "max": 11,
+    "hits11": 3,
+    "hits12": 0,
+    "last_sid": 3285,
+    "last_hits": 8,
+    "params": {
+      "hl": 20.0,
+      "bw": 100,
+      "mode": "hybrid"
+    }
+  },
+  "recurrence": {
+    "oos_lo": 3193,
+    "n": 93,
+    "avg": 8.0,
+    "max": 11,
+    "hits11": 2,
+    "hits12": 0,
+    "last_sid": 3285,
+    "last_hits": 8
+  }
+}
