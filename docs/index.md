@@ -12,6 +12,7 @@ This directory contains the refactored, modular documentation for the lottery pr
 - [Activity Log](activity_log.md) — Active tracker for runs, data additions, and evaluations.
 - [Conversation Log](conversation_log.md) — Index of pivotal prompts and AI responses.
 - [14/14 tickets-needed simulation, 3258–3287](sim_14of14_3258_3287.md) — distinct tickets needed per series to land 14/14 (random vs CB-pair generator).
+- [14/14 tickets-needed simulation, last 120 series 3168–3287](sim_14of14_3168_3287.md) — exact per-series tries for the system (CB pair) and random.
 
 ### Archived (`docs/old/`)
 - `fasttree_pipeline.md` — original ML/LightGBM architecture (deprecated 2026-05-10, audit found broken feature pipeline).
