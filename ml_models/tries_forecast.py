@@ -22,6 +22,13 @@ Usage:
   python ml_models/tries_forecast.py                 # forecast for the next series (7 events)
   python ml_models/tries_forecast.py --tickets 60000 # chance a 60,000-ticket budget hits
   python ml_models/tries_forecast.py --events 1      # E1 only
+  python ml_models/tries_forecast.py --rank "2,4,6,7,8,13,14,16,18,19,20,21,23,25"
+
+Exact form: with a fixed (lexicographic) play order, tries is a deterministic function
+of the 14 numbers, combo_rank(); series_tries() takes the minimum over the events.
+Evaluating it for a future series needs that series' numbers, so it gives no forecast:
+a linear equation of the previous event's 14 values predicted the next rank no better
+than a constant (mean abs error 1,109,721 vs 1,109,850 over the last 3,000 events).
 """
 from __future__ import annotations
 
@@ -29,6 +36,39 @@ import argparse
 from math import comb, exp, log
 
 N = comb(25, 14)  # 4,457,400
+
+
+def combo_rank(nums) -> int:
+    """Exact tries for one combination when tickets are played in a fixed (lexicographic)
+    order: its 1-based position, computed from its 14 values with the combinatorial
+    number system. [1..14] -> 1, [12..25] -> 4,457,400."""
+    c = sorted(int(n) for n in nums)
+    r, prev = 0, 0
+    for i, v in enumerate(c):
+        for u in range(prev + 1, v):
+            r += comb(25 - u, 13 - i)
+        prev = v
+    return r + 1
+
+
+def combo_unrank(r: int) -> list[int]:
+    """Inverse of combo_rank: the combination played on try number r."""
+    r -= 1
+    out, v = [], 1
+    for i in range(14):
+        while comb(25 - v, 13 - i) <= r:
+            r -= comb(25 - v, 13 - i)
+            v += 1
+        out.append(v)
+        v += 1
+    return out
+
+
+def series_tries(events) -> tuple[int, int]:
+    """Tries until the first 14/14 on any event of a series, fixed order: (tries, event number)."""
+    ranks = [combo_rank(e) for e in events]
+    best = min(ranks)
+    return best, ranks.index(best) + 1
 
 
 def prob_hit_within(tickets: int, events: int = 7) -> float:
@@ -71,7 +111,12 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     ap.add_argument("--events", type=int, default=7, help="distinct events per series (default 7)")
     ap.add_argument("--tickets", type=int, help="report the hit chance for this ticket budget")
+    ap.add_argument("--rank", help="comma-separated 14 numbers: print their exact try number")
     args = ap.parse_args()
+    if args.rank:
+        nums = [int(x) for x in args.rank.split(",")]
+        print(f"{sorted(nums)} -> try #{combo_rank(nums):,} of {N:,}")
+        return
 
     f = forecast(args.events)
     print(f"Next series, {args.events} event(s): tries until 14/14 (any ticket order)")
