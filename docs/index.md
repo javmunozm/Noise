@@ -103,6 +103,7 @@ See `docs/database.md` for full BsaDb schema and ad-hoc query reference.
 | 8-set prediction (Sys A) | `python ml_models/designed_family_predictor.py <sid>` |
 | Recurrence ticket (Sys B, no primacy) | `python ml_models/recurrence_predictor.py <sid>` |
 | Force-evaluator ticket (Sys B2, no primacy) | `python ml_models/force_evaluator.py <sid> --hl 20 --bw 100 --mode hybrid` |
+| Tries-to-14/14 forecast (next series) | `python ml_models/tries_forecast.py [--tickets N] [--events 7]` |
 | BsaDb CB pair (Sys C) | printed by `bsadb_update.py <prev_sid>`; ticket 2 = `bsa.swapper_pred WHERE SeriesId=<prev_sid>` |
 
 ## Key Signals & Findings
