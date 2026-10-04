@@ -135,7 +135,7 @@ SELECT Number, Source FROM bsa.swapper_pred WHERE SeriesId=<prev_draw_id> ORDER 
 | `nonpred_r` | 11 | Non-predicted numbers ranked by CondScore (swap insert candidates) |
 | `patch_drops_r` | 14 | Predicted numbers ranked weakest-first (swap drop candidates) |
 | `swap_pairs_r..r6` | 0–N | Swap decisions per round: InsertNumber, DropNumber, scores |
-| `swapper_pred` | 14 | Final 14-number ticket with `kept`/`inserted` labels |
+| `swapper_pred` | 14 | Ticket 2 (contrarian of CB) for the next series, `kept`/`inserted` labels |
 | `swapper_hits` | 1 | Hit count of swapper_pred[sid-1] vs E1[sid] — backfilled on next update |
 | `hits` | 1 | Hit count of base top-14 prediction vs E1 |
 | `cfg` | 1 | LatestSeries, WindowStart, WindowEnd (all current as of 3249) |
@@ -143,8 +143,10 @@ SELECT Number, Source FROM bsa.swapper_pred WHERE SeriesId=<prev_draw_id> ORDER 
 **Pipeline summary:**
 1. Score all 25 numbers by CondScore (avg overlap when they appeared, last 50 E1 draws)
 2. Base prediction = top-14 by CondScore
-3. Up to 6 swap rounds: if any non-predicted number scores higher than the weakest predicted number, swap them
-4. Final ticket = result after all rounds; stored in `swapper_pred`
+3. Next-series ranking = CondScore with history through the ingested draw; ticket 1 (CB) = its top-14
+4. Ticket 2 (contrarian) = ranks 12..25 (the 11 numbers CB left out + CB's 3 weakest); the 11 swaps (insert rank 14+k, drop rank k) go in `swap_pairs_r`, rounds 2..6 empty
+5. `swapper_pred` stores ticket 2; ticket 1 = its `kept` rows + `swap_pairs_r` DropNumber
+(Before 2026-10-04 the stored ticket was an independent delta-EWMA top-14 — not contrarian.)
 
 **OOS tracking:** started from draw 3228. `bsa.hits` tracks base prediction, `bsa.swapper_hits` tracks post-swap ticket.
 

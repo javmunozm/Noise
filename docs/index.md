@@ -71,19 +71,20 @@ python ml_models/force_evaluator.py --oos [--from 3193]                         
 python ml_models/sweep_force_evaluator.py                                         # 72-config sweep
 ```
 
-### System C — BsaDb EWMA Swapper (E1-only)
-**1 ticket** from delta-EWMA top-14 stored in BsaDb. **No ML.**
+### System C — BsaDb CB pair (E1-only)
+**2 tickets** per series from the CondScore ranking (history through the last draw). **No ML.**
 
-CondScore base retired 2026-05-23 (OOS avg 7.947 vs EWMA 8.211). Current system:
-EWMA swapper updates on each new draw; prediction for series N stored as
-`bsa.swapper_pred WHERE SeriesId=N−1`.
+- Ticket 1 (CB) = CondScore top-14.
+- Ticket 2 (contrarian) = the 11 numbers CB left out + CB's 3 weakest picks. Two 14-of-25 tickets always share ≥3 numbers, so this is the most contrary ticket possible; the pair covers all 25 numbers.
 
-OOS live since 3228 (n=26 as of 3254): avg **7.385** (−0.455 vs IID), underperforming IID historically.
-Currently underperforming IID — EWMA edge has not held up live; tracked for monitoring, not relied on. Latest (3255): 5/14, weakest of the three this cycle.
+**Bug fixed 2026-10-04:** from 2026-05-23 the second ticket had been an independent delta-EWMA top-14 instead of the contrarian of CB. `swapper_hits` up to the 3288 prediction scores that EWMA ticket (live avg 7.385 at n=26 as of 3254).
+
+Backtest 3228..3287 (n=60) vs E1: CB 8.200, contrarian 7.600 (mirror of CB by construction), best-of-pair 8.833 vs 8.777 expected for any random pair sharing 3 — no edge. For 14/14 any two distinct tickets give 2 in 4,457,400 per event.
 
 ```bash
 python ml_models/bsadb_update.py <draw_id>   # ingest result + store next prediction
-# read ticket: bsa.swapper_pred WHERE SeriesId=<draw_id>  (predicts draw_id+1)
+# ticket 2: bsa.swapper_pred WHERE SeriesId=<draw_id>  (predicts draw_id+1)
+# ticket 1: its 'kept' rows + bsa.swap_pairs_r DropNumber WHERE SeriesId=<draw_id>
 ```
 
 See `docs/database.md` for full BsaDb schema and ad-hoc query reference.
@@ -100,7 +101,7 @@ See `docs/database.md` for full BsaDb schema and ad-hoc query reference.
 | 8-set prediction (Sys A) | `python ml_models/designed_family_predictor.py <sid>` |
 | Recurrence ticket (Sys B, no primacy) | `python ml_models/recurrence_predictor.py <sid>` |
 | Force-evaluator ticket (Sys B2, no primacy) | `python ml_models/force_evaluator.py <sid> --hl 20 --bw 100 --mode hybrid` |
-| BsaDb ticket (Sys C) | query `bsa.swapper_pred WHERE SeriesId=<prev_sid>` |
+| BsaDb CB pair (Sys C) | printed by `bsadb_update.py <prev_sid>`; ticket 2 = `bsa.swapper_pred WHERE SeriesId=<prev_sid>` |
 
 ## Key Signals & Findings
 

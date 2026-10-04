@@ -13,18 +13,24 @@ Pipeline (mirrors existing BsaDb logic):
   8. ranked           — same ranking, Score=NULL
   9. nonpred_r        — non-predicted numbers with StrongRank
  10. patch_drops_r    — predicted numbers ranked by weakest score (candidates to drop)
- 11. swap_pairs_r..r6 — iterative swap rounds (insert strong non-pred, drop weak pred)
- 12. swapper_pred     — final 14-number ticket with kept/inserted labels
+ 11. swap_pairs_r..r6 — the 11 swaps that turn ticket 1 into ticket 2 (all in round 1)
+ 12. swapper_pred     — ticket 2 (contrarian) for sid+1, with kept/inserted labels
  13. swapper_hits     — hit count of swapper_pred[sid-1] vs actual E1[sid] (backfilled)
  14. hits             — hit count of base prediction (top-14 by cond_score) vs E1
  15. cfg              — update LatestSeries
+
+Emitted pair for sid+1 (CondScore ranking over history through sid):
+  ticket 1 (CB)         = top-14 by CondScore
+  ticket 2 (contrarian) = the 11 numbers ticket 1 left out + ticket 1's 3 weakest picks
+Two 14-of-25 tickets always share >= 3 numbers, so ticket 2 is the most contrary
+ticket possible and the pair covers all 25 numbers.
+Recover ticket 1 from the DB as: swapper_pred 'kept' rows + swap_pairs_r DropNumber.
 """
 
 import sys
 import json
 import math
 import pyodbc
-import numpy as np
 
 CONN_STR = (
     "DRIVER={ODBC Driver 18 for SQL Server};"
@@ -133,14 +139,16 @@ def compute_coappear(sid, draws_by_sid, all_sids_sorted):
     return rows
 
 
-def compute_cond_scores(sid, draws_by_sid, all_sids_sorted):
+def compute_cond_scores(sid, draws_by_sid, all_sids_sorted, through_sid=False):
     """
     CondScore = average number of hits in E1 when this number appeared, over last 50 draws.
     'Appearances' = how many of the last 50 E1 draws contained this number.
     Predicted = top 14 by CondScore (ties broken by Number asc).
+    through_sid=False: history strictly before sid (the base ranking *for* sid).
+    through_sid=True:  history including sid (the ranking *for* sid+1).
     """
     idx = all_sids_sorted.index(sid)
-    history = all_sids_sorted[:idx]
+    history = all_sids_sorted[:idx + 1] if through_sid else all_sids_sorted[:idx]
     e1_history = [draws_by_sid[s][0] for s in history if draws_by_sid[s]]
 
     # For conditional score we need to look forward: when num appeared in draw t,
@@ -223,89 +231,33 @@ def compute_cond_scores(sid, draws_by_sid, all_sids_sorted):
     return result
 
 
-def compute_ewma_scores(sid, draws_by_sid, all_sids_sorted, e1_actual=None,
-                        alpha_fast=0.30, alpha_slow=0.08, warmup=200):
+def compute_swapper(sid, next_cond_scores, num_rounds=6):
     """
-    Replicates signal_predictor.py delta-EWMA on E1 history only.
-    Trains on the 200 draws strictly before sid, then applies one final update
-    with e1_actual (sid's own E1 result, known at update time) so the window
-    matches signal_predictor exactly when predicting the NEXT series.
+    Emit the CB pair for sid+1 from next_cond_scores (CondScore ranking through sid).
+      ticket 1 (CB)         = ranks 1..14
+      ticket 2 (contrarian) = ranks 12..25: every number ticket 1 left out (ranks 15..25)
+                              plus ticket 1's 3 weakest picks (ranks 12..14)
+    Swap slot k inserts rank 14+k and drops rank k, so the 11 swaps turn ticket 1 into
+    ticket 2. All swaps go in round 1; rounds 2..6 stay empty.
     """
-    idx = all_sids_sorted.index(sid)
-    lo = max(0, idx - warmup)
-    history_sids = all_sids_sorted[lo:idx]
+    ranked = sorted(next_cond_scores, key=lambda r: r[5])  # rank 1..25
+    ticket_cb = {r[1] for r in ranked[:14]}
+    inserts = ranked[14:]   # ranks 15..25, strongest first
+    drops = ranked[:11]     # ranks 1..11, strongest first
+    ticket_contra = {r[1] for r in ranked[11:]}
 
-    ewma_f = np.zeros(26, dtype=np.float64)
-    ewma_s = np.zeros(26, dtype=np.float64)
+    swap_pairs_r1 = [
+        (sid, ins[1], drp[1], slot, ins[3], drp[3])
+        for slot, (ins, drp) in enumerate(zip(inserts, drops), 1)
+    ]
+    all_swap_pairs = {rnd: [] for rnd in range(1, num_rounds + 1)}
+    all_swap_pairs[1] = swap_pairs_r1
 
-    for s in history_sids:
-        events = draws_by_sid.get(s, [])
-        if not events:
-            continue
-        e1 = events[0]
-        row = np.zeros(26, dtype=np.float64)
-        for n in e1:
-            row[n] = 1.0
-        ewma_f[1:26] = alpha_fast * row[1:26] + (1.0 - alpha_fast) * ewma_f[1:26]
-        ewma_s[1:26] = alpha_slow * row[1:26] + (1.0 - alpha_slow) * ewma_s[1:26]
+    inserted = {sp[1] for sp in swap_pairs_r1}
+    swapper_pred = [(sid, n, "inserted" if n in inserted else "kept")
+                    for n in sorted(ticket_contra)]
 
-    # Include sid's own result so the prediction for sid+1 matches signal_predictor
-    if e1_actual:
-        row = np.zeros(26, dtype=np.float64)
-        for n in e1_actual:
-            row[n] = 1.0
-        ewma_f[1:26] = alpha_fast * row[1:26] + (1.0 - alpha_fast) * ewma_f[1:26]
-        ewma_s[1:26] = alpha_slow * row[1:26] + (1.0 - alpha_slow) * ewma_s[1:26]
-
-    delta = ewma_f - ewma_s
-    return {n: float(delta[n]) for n in NUMBERS}
-
-
-def compute_swapper(sid, cond_scores, e1_actual, ewma_scores,
-                    ewma_scores_lagged=None, num_rounds=6):
-    """
-    System C ticket: delta-EWMA top-14 updated with sid's own E1 result.
-    ewma_scores      = full-window scores (includes sid's E1) — the final ticket.
-    ewma_scores_lagged = scores WITHOUT sid's E1 (one draw behind).
-    Comparing the two shows which numbers the current draw swapped in/out:
-      'inserted' = promoted into top-14 by including this draw's E1
-      'dropped'  = demoted out of top-14 by this draw's E1
-      'kept'     = stable across both windows
-    swap_pairs_r stores one synthetic swap row per inserted number.
-    """
-    ewma_ticket = set(sorted(NUMBERS, key=lambda n: -ewma_scores[n])[:14])
-
-    # Lagged ticket (before this draw's update) — shows what the swap displaced
-    if ewma_scores_lagged is not None:
-        lagged_ticket = set(sorted(NUMBERS, key=lambda n: -ewma_scores_lagged[n])[:14])
-    else:
-        lagged_ticket = set(ewma_ticket)
-
-    inserted = sorted(ewma_ticket - lagged_ticket)
-    dropped  = sorted(lagged_ticket - ewma_ticket)
-
-    # One synthetic swap row per inserted number (paired with the corresponding drop)
-    swap_pairs_r1 = []
-    for slot, (ins, drp) in enumerate(zip(inserted, dropped), 1):
-        swap_pairs_r1.append((
-            sid, ins, drp, slot,
-            ewma_scores[ins], ewma_scores[drp]
-        ))
-
-    all_swap_pairs = {1: swap_pairs_r1}
-    for rnd in range(2, num_rounds + 1):
-        all_swap_pairs[rnd] = []
-    ticket_by_round = {rnd: set(ewma_ticket) for rnd in range(1, num_rounds + 1)}
-
-    swapper_pred = []
-    for n in sorted(ewma_ticket):
-        source = "inserted" if n in inserted else "kept"
-        swapper_pred.append((sid, n, source))
-
-    e1_set = set(e1_actual)
-    hits_by_round = {rnd: len(ewma_ticket & e1_set) for rnd in range(1, num_rounds + 1)}
-
-    return all_swap_pairs, swapper_pred, hits_by_round, ticket_by_round
+    return all_swap_pairs, swapper_pred, ticket_cb, ticket_contra
 
 
 def get_nonpred_r(sid, cond_scores, swap_pairs_r1):
@@ -461,11 +413,8 @@ def update_bsadb(sid):
     conn.commit()
 
     print(f"[7/16] swapper...")
-    ewma_lagged = compute_ewma_scores(sid, draws_by_sid, all_sids_sorted)
-    ewma_scores = compute_ewma_scores(sid, draws_by_sid, all_sids_sorted, e1_actual=e1_actual)
-    swap_pairs_all, swapper_pred, hits_by_round, ticket_by_round = compute_swapper(
-        sid, cs_rows, e1_actual, ewma_scores, ewma_scores_lagged=ewma_lagged
-    )
+    next_cs_rows = compute_cond_scores(sid, draws_by_sid, all_sids_sorted, through_sid=True)
+    swap_pairs_all, swapper_pred, ticket_cb, ticket_contra = compute_swapper(sid, next_cs_rows)
 
     # swap_pairs_r..r6
     swap_tables = ["bsa.swap_pairs_r", "bsa.swap_pairs_r2", "bsa.swap_pairs_r3",
@@ -546,15 +495,16 @@ def update_bsadb(sid):
 
     print(f"\n[ok] BsaDb updated for series {sid}")
     print(f"     E1 actual  : {e1_actual}")
-    print(f"     Base hits  : {base_hits}/14  (CondScore top-14 vs this draw)")
+    print(f"     Ticket 1 (CB) hits        : {base_hits}/14  (CondScore top-14 vs this draw)")
     if final_hits is not None:
-        print(f"     Swapper hits (sid-1 pred vs this draw): {final_hits}/14")
+        print(f"     Ticket 2 (stored sid-1) hits: {final_hits}/14")
     else:
-        print(f"     Swapper hits: no prior prediction to score")
-    final_ticket = sorted(ticket_by_round[6])
-    inserted = [n for n in final_ticket if any(sp[1] == n and sp[2] == 'inserted' for sp in swapper_pred)]
-    print(f"     Next ticket : {final_ticket}")
-    print(f"     Swapped in  : {inserted} (promoted by this draw's E1 update)")
+        print(f"     Ticket 2: no prior prediction to score")
+    kept = sorted(ticket_cb & ticket_contra)
+    print(f"     Next pair for {sid + 1}:")
+    print(f"       Ticket 1 (CB)         : {sorted(ticket_cb)}")
+    print(f"       Ticket 2 (contrarian) : {sorted(ticket_contra)}")
+    print(f"       Shared {len(kept)} {kept}; pair covers {len(ticket_cb | ticket_contra)}/25 numbers")
 
 
 if __name__ == "__main__":
